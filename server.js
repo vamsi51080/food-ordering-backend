@@ -15,10 +15,41 @@ connectDB();
 // Initialize Express
 const app = express();
 
+const normalizeOrigin = (origin) => String(origin || '').trim().replace(/\/+$/, '');
+const configuredOrigins = [
+  'http://localhost:3000',
+  ...(process.env.FRONTEND_URL || '')
+    .split(',')
+    .map((origin) => normalizeOrigin(origin))
+    .filter(Boolean),
+];
+
 // Middleware
 app.use(cors({
-  origin: [process.env.FRONTEND_URL || 'http://localhost:3000', 'http://localhost:3000'],
-  credentials: true
+  origin: (origin, callback) => {
+    // Allow non-browser requests (curl, health checks)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    const requestOrigin = normalizeOrigin(origin);
+    const isExplicitlyAllowed = configuredOrigins.includes(requestOrigin);
+    let isRenderDomain = false;
+
+    try {
+      isRenderDomain = /\.onrender\.com$/i.test(new URL(requestOrigin).hostname);
+    } catch (error) {
+      isRenderDomain = false;
+    }
+
+    if (isExplicitlyAllowed || isRenderDomain) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+  optionsSuccessStatus: 200,
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
