@@ -1,4 +1,8 @@
 const Order = require('../models/Order');
+const {
+  sendOrderPlacedEmailToAdmin,
+  sendOrderReadyEmailToCustomer,
+} = require('../services/notificationService');
 
 // Create new order
 exports.createOrder = async (req, res) => {
@@ -34,6 +38,14 @@ exports.createOrder = async (req, res) => {
       pickupTime,
       notes
     });
+
+    // Send order-placed email to admin without blocking order placement.
+    try {
+      const emailResult = await sendOrderPlacedEmailToAdmin(order);
+      console.log('Order placed email result:', emailResult);
+    } catch (notificationError) {
+      console.error('Order placed email failed:', notificationError.message);
+    }
     
     res.status(201).json({
       success: true,
@@ -114,17 +126,26 @@ exports.updateOrderStatus = async (req, res) => {
       });
     }
     
-    const order = await Order.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true, runValidators: true }
-    );
+    const order = await Order.findById(req.params.id);
     
     if (!order) {
       return res.status(404).json({
         success: false,
         message: 'Order not found'
       });
+    }
+
+    const previousStatus = order.status;
+    order.status = status;
+    await order.save();
+
+    if (previousStatus !== 'ready' && status === 'ready') {
+      try {
+        const readyEmailResult = await sendOrderReadyEmailToCustomer(order);
+        console.log('Order ready email result:', readyEmailResult);
+      } catch (notificationError) {
+        console.error('Order ready email failed:', notificationError.message);
+      }
     }
     
     res.status(200).json({
